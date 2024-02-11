@@ -1,6 +1,12 @@
-import github
+import os
+import auth
 from github import Auth, Github
 from openai import OpenAI
+
+
+def set_env_variable(gh, oai):
+    os.environ['GHTAILOR'] = gh
+    os.environ['OAITAILOR'] = oai
 
 
 def find_articles():
@@ -82,18 +88,17 @@ def generated_thumbnail(context):
 
 def authenticate_git():
     # using an access token
-    auth = Auth.Token("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")
-
+    key = Auth.Token(auth._GHTAILOR)
     # First create a Github instance:
-
     # Public Web Github
-    g = Github(auth=auth)
+    g = Github(auth=key)
     return g
 
 
 def authenticate_chatgpt():
-    client = OpenAI(api_key="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")
+    client = OpenAI(api_key=auth._OAITAILOR)
     return client
+
 
 if __name__ == '__main__':
     g = authenticate_git()
