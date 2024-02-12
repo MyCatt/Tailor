@@ -12,3 +12,15 @@ article_prompts = {
                      "Aim for a professional yet conversational tone, and structure the post with an introduction, "
                      "key points, and a conclusion. "
 }
+
+chains = {
+    "ExtractKeyPoints": [
+        {"role": "user", "content": "Extract new features from the software update notes."},
+        {"role": "user", "content": "Extract changed features from the software update notes."},
+        {"role": "user", "content": "Extract important features from the software update notes."},
+        {"role": "user", "content": "Extract availability dates from the software update notes."},
+        {"role": "user", "content": "Write an unbiased and unexaggerated linked in post mentioning these new features, changed features, important features and availability from these software update notes, be educational."},
+        {"role": "system", "content": "Review your linked in post. If it is missing any key points, add them. If it's inconsisent with the original software update notes, fix it. "},
+        {"role": "system", "content": "You're a Finance & Operations user. Review this document and re-write it to align more with your user viewpoint"}
+    ]
+}
