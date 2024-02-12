@@ -6,148 +6,112 @@ import auth
 from github import Auth, Github
 from openai import OpenAI
 
+import prompts
 
-def find_articles():
-    repo = g.get_repo("MicrosoftDocs/dynamics-365-unified-operations-public")
+
+# Ensure directories exist
+def ensure_dir_exists(dir_path):
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+
+
+# Save content to a file
+def save_content(file_path, content):
+    with open(file_path, 'w', encoding="utf-8") as f:
+        f.write(content)
+
+
+# Find and process articles from a specific GitHub repository
+def find_articles(github_client, chatgpt_client):
+    repo = github_client.get_repo("MicrosoftDocs/dynamics-365-unified-operations-public")
     contents = repo.get_contents("articles/fin-ops-core/fin-ops/get-started")
 
     for content_file in contents:
-        path = content_file.path
-        file_name = path.replace("articles/fin-ops-core/fin-ops/get-started/", "")
-        if "whats-new-platform-updates" in file_name:
+        if "whats-new-platform-updates" in content_file.path:
+            file_name = content_file.path.split("/")[-1].replace(".md", "")
+            base_path = f"./Articles/{file_name}"
+            ensure_dir_exists(base_path)
+            ensure_dir_exists(f"{base_path}/transcript")
 
-            os.mkdir("./Articles/" + file_name[:-3])
-            os.mkdir("./Articles/" + file_name[:-3] + "/transcript")
+            # Fetch Article & Summarise
+            article = repo.get_contents(content_file.path)
+            article_content = summarise_article(chatgpt_client, article)
 
-            # Get the article content from git
-            article = repo.get_contents(path)
+            thumbnail_url = ""
+            transcript = ""
 
-            # Summarise the article with OpenAI
-            article_content = summarise_article(article)
+            # From Summary Generate Thumbnail
+            # thumbnail_url = generate_thumbnail(chatgpt_client, file_name, article_content)
 
-            # Generated a thumbnail using the article generated above
-            thumbnail_prompt = create_thumbnail(article_content)
-            # Generate a thumbnail using the prompt above
-            thumbnail = generated_thumbnail(file_name[:-3], thumbnail_prompt)
+            # From Summary Generate Audio Transcript
+            #transcript = summarise_article_audio(chatgpt_client, article_content)
 
-            # Generate the audio transcript
-            transcript = summarise_article_audio(article_content)
+            article_file_path = f"{base_path}/{file_name}.md"
+            transcript_file_path = f"{base_path}/transcript/{file_name}.txt"
 
-            # Save the article to a file
-            save_article(file_name, article_content, thumbnail, transcript)
+            save_article(article_file_path, article_content, thumbnail_url, content_file.path)
+            save_content(transcript_file_path, transcript)
 
-            # Generate and save the audio file
-            generate_audio(file_name[:-3], transcript)
+            # Generate Audio From Transcript
+            # generate_audio(chatgpt_client, file_name, transcript)
 
-            return
-
-    # To close connections after use
-    g.close()
+            break  # Remove if you want to process more than one article
 
 
-def save_article(file_name, article_content, thumbnail, transcript):
-    with open("Articles/" + file_name[:-3] + "/" + file_name, 'w', encoding="utf-8") as f:
-        f.write(article_content)
-        f.write("\n\n![Thumbnail](" +thumbnail + ")")
-        f.write('\n[Full Article] ' + "https://learn.microsoft.com/en-us/dynamics365/fin-ops-core/fin-ops/get-started/" + file_name)
 
-    with open("Articles/" + file_name[:-3] + "/transcript/" + file_name, 'w', encoding="utf-8") as f:
-        f.write(transcript)
+# Save article content along with thumbnail and link
+def save_article(file_path, article_content, thumbnail_url, original_article_link):
+    content = f"{article_content}\n\n![Thumbnail]({thumbnail_url})\n[Full Article]({original_article_link})"
+    save_content(file_path, content)
 
 
-def summarise_article(article):
-    chat_completion = c.chat.completions.create(
-        messages=[
-            {
-                "role": "user",
-                "content": "Write an honest and engaging Linked In post summarising the following update release notes."
-                           "You do not work for this company, you're just creating an educational post."
-                           "This article should have a strictly corporate style"
-                           "The input (follows) and output are both markdown."
-                           + str(article),
-            }
-        ],
-        model="gpt-4-0125-preview",
-    )
-    print(chat_completion)
-    content = chat_completion.choices[0].message.content
-    print(content)
-    return content
+# Summarize the article using ChatGPT
+def summarise_article(chatgpt_client, article):
+    prompt = prompts.article_prompts["GPT4Generated"] + "The following is the content you should use for this task." + str(article)
+    response = chatgpt_client.chat.completions.create(messages=[{"role": "user", "content": prompt}], model="gpt-4-0125-preview")
+    return response.choices[0].message.content
 
 
-def summarise_article_audio(article):
-    chat_completion = c.chat.completions.create(
-        messages=[
-            {
-                "role": "user",
-                "content": "take this article and create an audio transcript that I can supply to the openAI speech API. This transcript should only include words that should be read and spoken directly."
-                           + str(article),
-            }
-        ],
-        model="gpt-4-0125-preview",
-    )
-    content = chat_completion.choices[0].message.content
-    return content
-
-
-def create_thumbnail(article):
-    chat_completion = c.chat.completions.create(
-        messages=[
-            {
-                "role": "user",
-                "content": "Extract keywords from this article and design an illustration around a physical object that relates to these keywords.  e.g. Updates relates to Computer"
-                           "Article:" + article
-                           + str(article),
-            }
-        ],
-        model="gpt-4-0125-preview",
-    )
-    content = chat_completion.choices[0].message.content
-    return content
-
-
-def generated_thumbnail(file_name, context):
-    image_completion = c.images.generate(
-        model="dall-e-3",
-        prompt= context + ". Characteristics: Mandatory colors: [#7F27FF, #FF8911], gradient, dimensional graphic design, Illusion of live-like depth and volume, Employs various lighting effects, Shadow and depth indications often utilise one colour, with tonal variations",
-        n=1,
-        size="1024x1024",
-        quality="hd",
-        style="vivid"
-    )
-    image_url = image_completion.data[0].url
+# Generate a thumbnail for the article
+def generate_thumbnail(chatgpt_client, file_name, article):
+    prompt = "Extract keywords from this article and design an illustration around a physical object that relates to these keywords." + "Article:" + article
+    response = chatgpt_client.images.generate(prompt=prompt, n=1, size="1024x1024", quality="hd", style="vivid")
+    image_url = response.data[0].url
     img_data = requests.get(image_url).content
-    with open("Articles/" + file_name + "/" + file_name +'.jpg', 'wb') as handler:
+    with open(f"Articles/{file_name}/{file_name}.jpg", 'wb') as handler:
         handler.write(img_data)
     return image_url
 
 
-def generate_audio(file_name, context):
-    speech_file_path = "Articles/" + file_name + "/" + file_name + ".mp3"
-    response = c.audio.speech.create(
-        model="tts-1",
-        voice="alloy",
-        input=context
-    )
+# Summarize the article for audio transcript
+def summarise_article_audio(chatgpt_client, article):
+    prompt = "Create an audio transcript from this article suitable for the OpenAI speech API."
+    response = chatgpt_client.chat.completions.create(messages=[{"role": "user", "content": prompt + str(article)}], model="gpt-4-0125-preview")
+    return response.choices[0].message.content
 
+
+# Generate audio from the transcript
+def generate_audio(chatgpt_client, file_name, transcript):
+    speech_file_path = "Articles/" + file_name + "/" + file_name + ".mp3"
+    response = chatgpt_client.audio.speech.create(model="tts-1", voice="alloy", input=transcript)
     response.stream_to_file(speech_file_path)
 
 
+# Authenticate with GitHub
 def authenticate_git():
-    # using an access token
-    key = Auth.Token(auth._GHTAILOR)
-    # First create a Github instance:
-    # Public Web Github
-    g = Github(auth=key)
-    return g
+    key = auth._GHTAILOR
+    github_client = Github(key)
+    return github_client
 
 
+# Authenticate with OpenAI
 def authenticate_chatgpt():
-    client = OpenAI(api_key=auth._OAITAILOR)
-    return client
+    api_key = auth._OAITAILOR
+    chatgpt_client = OpenAI(api_key=api_key)
+    return chatgpt_client
 
 
 if __name__ == '__main__':
-    g = authenticate_git()
-    c = authenticate_chatgpt()
-    find_articles()
+    github_client = authenticate_git()
+    chatgpt_client = authenticate_chatgpt()
+    find_articles(github_client, chatgpt_client)
