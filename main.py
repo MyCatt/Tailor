@@ -7,11 +7,6 @@ from github import Auth, Github
 from openai import OpenAI
 
 
-def set_env_variable(gh, oai):
-    os.environ['GHTAILOR'] = gh
-    os.environ['OAITAILOR'] = oai
-
-
 def find_articles():
     repo = g.get_repo("MicrosoftDocs/dynamics-365-unified-operations-public")
     contents = repo.get_contents("articles/fin-ops-core/fin-ops/get-started")
