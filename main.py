@@ -27,15 +27,21 @@ def find_articles(github_client, chatgpt_client):
     contents = repo.get_contents("articles/fin-ops-core/fin-ops/get-started")
 
     for content_file in contents:
-        if "whats-new-platform-updates" in content_file.path:
-            file_name = content_file.path.split("/")[-1].replace(".md", "")
+        path = content_file.path
+        file_name = path.replace("articles/fin-ops-core/fin-ops/get-started/", "")
+        if "whats-new-platform-updates" in file_name:
+
+            # file_name = content_file.path.split("/")[-1].replace(".md", "")
             base_path = f"./Articles/{file_name}"
             ensure_dir_exists(base_path)
             ensure_dir_exists(f"{base_path}/transcript")
 
             # Fetch Article & Summarise
-            article = repo.get_contents(content_file.path)
-            article_content = summarise_article(chatgpt_client, article)
+            article = repo.get_contents(path).decoded_content
+
+
+            #article_content = summarise_article(chatgpt_client, article)
+            article_content = summarise_article_chain(chatgpt_client, article)
 
             thumbnail_url = ""
             transcript = ""
@@ -49,7 +55,7 @@ def find_articles(github_client, chatgpt_client):
             article_file_path = f"{base_path}/{file_name}.md"
             transcript_file_path = f"{base_path}/transcript/{file_name}.txt"
 
-            save_article(article_file_path, article_content, thumbnail_url, content_file.path)
+            save_article(article_file_path, article_content, thumbnail_url, content_file)
             save_content(transcript_file_path, transcript)
 
             # Generate Audio From Transcript
@@ -69,6 +75,12 @@ def save_article(file_path, article_content, thumbnail_url, original_article_lin
 def summarise_article(chatgpt_client, article):
     prompt = prompts.article_prompts["GPT4Generated"] + "The following is the content you should use for this task." + str(article)
     response = chatgpt_client.chat.completions.create(messages=[{"role": "user", "content": prompt}], model="gpt-4-0125-preview")
+    return response.choices[0].message.content
+
+
+def summarise_article_chain(chatgpt_client, article): #str(article)
+    messages = [{"role": "system", "content": "Here are software release notes: " + str(article)}] + prompts.chains["ExtractKeyPoints"]
+    response = chatgpt_client.chat.completions.create(messages=messages, model="gpt-4-0125-preview")
     return response.choices[0].message.content
 
 
